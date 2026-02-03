@@ -1,0 +1,139 @@
+/* 主窗口背景 */
+QMainWindow {
+    background-color: #f5f7fa;
+}
+
+/* 左侧导航栏 */
+QListWidget {
+    background-color: #2d3748;
+    color: #ffffff;
+    border: none;
+    font-size: 12px;
+}
+
+QListWidget::item {
+    height: 50px;
+    padding-left: 20px;
+    text-align: left;
+}
+
+QListWidget::item:selected {
+    background-color: #4a5568;
+    border-left: 4px solid #4299e1;
+}
+
+QListWidget::item:hover {
+    background-color: #4a5568;
+}
+
+/* 按钮样式 */
+QPushButton {
+    background-color: #4299e1;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 11px;
+}
+
+QPushButton:hover {
+    background-color: #3182ce;
+}
+
+QPushButton:pressed {
+    background-color: #2b6cb0;
+}
+
+QPushButton:disabled {
+    background-color: #cbd5e0;
+    color: #718096;
+}
+
+/* 表格样式 */
+QTableWidget {
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    gridline-color: #e2e8f0;
+}
+
+QTableWidget::item {
+    padding: 8px;
+    font-size: 11px;
+}
+
+QTableWidget::item:selected {
+    background-color: #e8f4f8;
+    color: #2d3748;
+}
+
+QHeaderView::section {
+    background-color: #f7fafc;
+    border: none;
+    border-bottom: 1px solid #dee2e6;
+    border-right: 1px solid #dee2e6;
+    padding: 8px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+/* 输入框、文本框样式 */
+QLineEdit, QTextEdit, QTextBrowser, QComboBox {
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+}
+
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+    border-color: #4299e1;
+    outline: none;
+}
+
+/* 标签页样式 */
+QTabWidget::pane {
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+}
+
+QTabBar::tab {
+    background-color: #f7fafc;
+    color: #4a5568;
+    border: none;
+    border-radius: 6px 6px 0 0;
+    padding: 10px 20px;
+    margin-right: 4px;
+    font-size: 11px;
+}
+
+QTabBar::tab:selected {
+    background-color: #ffffff;
+    color: #2d3748;
+    border-top: 2px solid #4299e1;
+}
+
+QTabBar::tab:hover {
+    background-color: #edf2f7;
+}
+
+/* 对话框样式 */
+QDialog {
+    background-color: #ffffff;
+    border-radius: 6px;
+}
+
+QLabel {
+    font-size: 11px;
+    color: #2d3748;
+}
+
+/* 分割器样式 */
+QSplitter::handle {
+    background-color: #e2e8f0;
+}
+
+QSplitter::handle:hover {
+    background-color: #cbd5e0;
+}
