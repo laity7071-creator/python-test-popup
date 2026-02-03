@@ -1,13 +1,15 @@
-# 内置GUI库，无需额外安装，打包兼容性最好
-import tkinter as tk
-from tkinter import messagebox
+# 原来的代码保留
+from ui.main_win import MainWindow
+import sys
+from PyQt6.QtWidgets import QApplication
 
-# 隐藏主窗口，只弹提示框
-root = tk.Tk()
-root.withdraw()
-
-# 弹出提示框，可自由修改标题和文字
-messagebox.showinfo(
-    title="测试完成",
-    message="你是傻逼吗"
-)
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyleSheet("QWidget { font-family: Microsoft YaHei; }")
+    win = MainWindow()
+    win.show()
+    qr = win.frameGeometry()
+    cp = app.primaryScreen().availableGeometry().center()
+    qr.moveCenter(cp)
+    win.move(qr.topLeft())
+    sys.exit(app.exec())
