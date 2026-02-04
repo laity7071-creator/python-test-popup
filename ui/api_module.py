@@ -1,4 +1,16 @@
-# api_module.py - Python3.10+PyQt6 兼容，API请求模块（支持GET/POST，Form/JSON/请求头/URL参数）
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@作者: laity.wang
+@创建日期: 2026/2/4 11:53
+@文件名: api_module.py
+@项目名称: python-test-popup
+@文件完整绝对路径: D:/LaityTest/python-test-popup/ui\api_module.py
+@文件相对项目路径:   # 可选，不需要可以删掉这行
+@描述: 
+"""
+# api_module.py - Python3.8+PyQt6 兼容，API请求模块（支持GET/POST，Form/JSON/请求头/URL参数）
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit,
     QPushButton, QSizePolicy, QMessageBox, QComboBox, QTextEdit, QTabWidget,
@@ -9,12 +21,16 @@ from PyQt6.QtGui import QFont
 import requests
 import json
 import time
-from .log_base import LogBaseWidget
 import traceback
+
+# 相对导入通用日志类
+from .log_base import LogBaseWidget
 
 # 关闭requests SSL警告
 from urllib3.exceptions import InsecureRequestWarning
+
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
 
 # ---------------------- API请求子线程 ----------------------
 class APIRequestThread(QThread):
@@ -36,6 +52,8 @@ class APIRequestThread(QThread):
         self._is_paused = False
 
     def run(self):
+        logging.info(f"开始{self.method}请求：{self.url}")
+        logging.info(f"请求参数：{self.params}，请求体：{self.data}，请求头：{self.headers}")
         try:
             if not self.url.startswith(("http://", "https://")):
                 self.output_signal.emit("请求URL格式错误，必须以http://或https://开头", "ERROR")
@@ -83,6 +101,8 @@ class APIRequestThread(QThread):
             # 处理响应结果
             cost_time = round(time.time() - start_time, 3)
             self.output_signal.emit(f"✅ 请求完成 | 耗时：{cost_time}秒 | 状态码：{response.status_code}", level="INFO")
+            logging.info(f"API请求完成：状态码{response.status_code}，耗时{cost_time}秒")
+
             self.output_signal.emit("📌 响应头：", level="INFO")
             for k, v in response.headers.items():
                 self.output_signal.emit(f"  {k}: {v}", level="INFO")
@@ -92,8 +112,11 @@ class APIRequestThread(QThread):
             try:
                 resp_json = response.json()
                 resp_str = json.dumps(resp_json, ensure_ascii=False, indent=2)
+                logging.info(f"API响应体（JSON）：{resp_str[:1000]}...")
             except:
-                resp_str = response.text if len(response.text) <= 5000 else f"{response.text[:5000]}...[响应体过长，仅显示前5000字符]"
+                resp_str = response.text if len(
+                    response.text) <= 5000 else f"{response.text[:5000]}...[响应体过长，仅显示前5000字符]"
+                logging.info(f"API响应体（文本）：{resp_str[:1000]}...")
 
             # 分段输出响应体
             for line in resp_str.split("\n"):
@@ -107,6 +130,7 @@ class APIRequestThread(QThread):
         except Exception as e:
             err_info = f"❌ 请求异常：{str(e)}\n{traceback.format_exc()[:600]}"
             self.output_signal.emit(err_info, "ERROR")
+            logging.error(f"API请求异常：{err_info}", exc_info=True)
         finally:
             self.finish_signal.emit(self._is_running)
 
@@ -115,6 +139,7 @@ class APIRequestThread(QThread):
         with QMutexLocker(self._mutex):
             self._is_running = False
         self.output_signal.emit("🔴 已强制停止API请求", "SYSTEM")
+        logging.warning("已强制停止API请求")
 
     def pause(self):
         """暂停输出"""
@@ -130,12 +155,14 @@ class APIRequestThread(QThread):
     def is_paused(self):
         return self._is_paused
 
+
 # ---------------------- API主模块（继承通用日志类） ----------------------
-class APIModule(QWidget):
+class APIModule(LogBaseWidget):
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent)  # 初始化父类日志组件
         self.request_thread = None
         self._init_ui()
+        logging.info("API模块初始化完成")
 
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -147,9 +174,7 @@ class APIModule(QWidget):
         self._init_api_base_config()
         # 2. API参数配置区（标签页：请求头/URL参数/请求体）
         self._init_api_param_area()
-        # 3. 通用日志区（和其他模块完全一致）
-        self.log_widget = LogBaseWidget(self)
-        self.main_layout.addWidget(self.log_widget, stretch=1)
+        # 3. 通用日志区已由父类LogBaseWidget初始化
 
         # 初始化按钮状态
         self._init_btn_status()
@@ -170,7 +195,6 @@ class APIModule(QWidget):
         self.method_combo.setFixedWidth(80)
         self._set_combo_style(self.method_combo)
         row1.addWidget(self.method_combo)
-
         row1.addWidget(QLabel("*请求URL：", font=QFont("Microsoft YaHei", 12)))
         self.url_input = QLineEdit()
         self._set_line_style(self.url_input)
@@ -187,7 +211,6 @@ class APIModule(QWidget):
         self.timeout_input.setFixedWidth(100)
         self.timeout_input.setText("30")
         row2.addWidget(self.timeout_input)
-
         self.ssl_check = QCheckBox("启用SSL证书验证（默认关闭，忽略不安全警告）")
         self.ssl_check.setFont(QFont("Microsoft YaHei", 11))
         self.ssl_check.setStyleSheet("QCheckBox { color: #2c3e50; }")
@@ -218,7 +241,7 @@ class APIModule(QWidget):
         self.send_btn.clicked.connect(self.send_api_request)
         self.stop_btn.clicked.connect(self.stop_api_request)
         self.pause_btn.clicked.connect(self.toggle_pause_output)
-        self.clear_log_btn.clicked.connect(self.log_widget.clear_all_log)
+        self.clear_log_btn.clicked.connect(self.clear_all_log)
 
     def _init_api_param_area(self):
         """API参数配置：标签页（请求头/URL参数/请求体）+ 请求体类型选择"""
@@ -237,7 +260,8 @@ class APIModule(QWidget):
         type_layout.addWidget(QLabel("请求体类型（POST）：", font=QFont("Microsoft YaHei", 12)))
         type_layout.addWidget(self.data_type_combo)
         type_layout.addStretch(1)
-        type_layout.addWidget(QLabel("提示：所有参数均为JSON格式，空则留{}", font=QFont("Microsoft YaHei", 10, QFont.Weight.Light)))
+        type_layout.addWidget(
+            QLabel("提示：所有参数均为JSON格式，空则留{}", font=QFont("Microsoft YaHei", 10, QFont.Weight.Light)))
         type_layout.labelWidget().setStyleSheet("color: #64748b;")
         param_layout.addLayout(type_layout)
 
@@ -367,7 +391,9 @@ class APIModule(QWidget):
                 return {}
             return json.loads(text.strip())
         except Exception as e:
-            self.log_widget.print_log(f"{tip}JSON格式解析失败：{str(e)}", level="ERROR")
+            err_msg = f"{tip}JSON格式解析失败：{str(e)}"
+            self.print_log(err_msg, level="ERROR")
+            logging.error(err_msg)
             QMessageBox.warning(self, "格式错误", f"{tip}必须为合法JSON格式！\n{e}")
             return None
 
@@ -397,7 +423,8 @@ class APIModule(QWidget):
 
         # 4. POST请求体空值处理
         if method == "POST" and not body:
-            self.log_widget.print_log("⚠️  POST请求体为空，将发送空数据", level="WARNING")
+            self.print_log("⚠️  POST请求体为空，将发送空数据", level="WARNING")
+            logging.warning("POST请求体为空，将发送空数据")
 
         # 5. 停止已有请求
         if self.request_thread and self.request_thread.isRunning():
@@ -408,7 +435,7 @@ class APIModule(QWidget):
             method=method, url=url, headers=headers, params=params,
             data_type=data_type, data=body, timeout=timeout, verify_ssl=verify_ssl
         )
-        self.request_thread.output_signal.connect(self.log_widget.print_log)
+        self.request_thread.output_signal.connect(self.print_log)
         self.request_thread.finish_signal.connect(self._request_finish)
         self.request_thread.start()
 
@@ -416,7 +443,7 @@ class APIModule(QWidget):
         self.send_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.pause_btn.setEnabled(True)
-        self.log_widget.print_log(f"🚀 已启动{method}请求，目标URL：{url}", level="SYSTEM")
+        self.print_log(f"🚀 已启动{method}请求，目标URL：{url}", level="SYSTEM")
 
     def stop_api_request(self):
         """强制停止API请求"""
@@ -428,36 +455,47 @@ class APIModule(QWidget):
     def toggle_pause_output(self):
         """暂停/恢复日志输出"""
         if not self.request_thread or not self.request_thread.isRunning():
-            self.log_widget.print_log("⚠️  无正在执行的请求，无法暂停", level="WARNING")
+            self.print_log("⚠️  无正在执行的请求，无法暂停", level="WARNING")
             return
+
         if self.request_thread.is_paused:
             self.request_thread.resume()
             self.pause_btn.setText("⏸️  暂停输出")
-            self.log_widget.print_log("🟢 已恢复响应结果输出", level="SYSTEM")
+            self.print_log("🟢 已恢复响应结果输出", level="SYSTEM")
         else:
             self.request_thread.pause()
             self.pause_btn.setText("▶️  继续输出")
-            self.log_widget.print_log("🟡 已暂停响应结果输出", level="SYSTEM")
+            self.print_log("🟡 已暂停响应结果输出", level="SYSTEM")
 
-    def _request_finish(self, is_normal):
-        """请求完成回调：恢复按钮状态"""
-        if is_normal:
-            self.log_widget.print_log("✅ API请求流程执行完成", level="SYSTEM")
-        else:
-            self.log_widget.print_log("🔴 API请求被中断/执行异常", level="WARNING")
-        self.send_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.pause_btn.setEnabled(False)
-        self.pause_btn.setText("⏸️  暂停输出")
-        self.request_thread = None
+        def _request_finish(self, is_normal):
+            """请求完成回调：恢复按钮状态"""
+            if is_normal:
+                self.print_log("✅ API请求流程执行完成", level="SYSTEM")
+                logging.info("API请求流程执行完成")
+            else:
+                self.print_log("🔴 API请求被中断/执行异常", level="WARNING")
+                logging.warning("API请求被中断/执行异常")
 
-if __name__ == "__main__":
-    import sys
-    from PyQt6.QtWidgets import QApplication, QMainWindow
-    app = QApplication(sys.argv)
-    win = QMainWindow()
-    win.setWindowTitle("API请求模块 - 优化版")
-    win.setGeometry(100, 100, 1600, 900)
-    win.setCentralWidget(APIModule())
-    win.show()
-    sys.exit(app.exec())
+            self.send_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self.pause_btn.setEnabled(False)
+            self.pause_btn.setText("⏸️  暂停输出")
+            self.request_thread = None
+
+    if __name__ == "__main__":
+        import sys
+        from PyQt6.QtWidgets import QApplication, QMainWindow
+        # 初始化日志
+        from utils.log_utils import init_logger
+        init_logger()
+
+        app = QApplication(sys.argv)
+        win = QMainWindow()
+        win.setWindowTitle("API请求模块 - 优化版")
+        win.setGeometry(100, 100, 1600, 900)
+        win.setCentralWidget(APIModule())  # 保持不变，新增下面2行
+        # 解决PyCharm未解析提示（实际运行不影响，仅IDE提示）
+        from __main__ import APIModule
+        win.setCentralWidget(APIModule())
+        win.show()
+        sys.exit(app.exec())

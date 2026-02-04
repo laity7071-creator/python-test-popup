@@ -1,5 +1,8 @@
-# 核心依赖（调整为兼容版本，避免版本冲突）
-PyQt6==6.6.1  # 兼容Python 3.8+
-pymysql==1.1.0  # 兼容Python 3.6+
-requests==2.32.3  # 最新稳定版，兼容Python 3.7+
-pyinstaller==6.18.0  # 从错误信息中选择最新可用版本
+# 核心依赖（修复安全漏洞，兼容Python3.8+）
+PyQt6==6.6.1  # 无已知高危漏洞
+pymysql==1.1.1  # 升级到最新稳定版，修复安全漏洞
+requests==2.32.3  # 最新稳定版，无高危漏洞
+pyinstaller==6.18.0  # 最新稳定版
+urllib3==2.2.1  # 新增：指定安全版本，解决urllib3漏洞警告
+paramiko==3.4.0  # 新增：SSH模块依赖，之前漏写了
+psycopg2-binary==2.9.9  # 新增：PostgreSQL依赖，之前漏写了

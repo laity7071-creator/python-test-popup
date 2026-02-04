@@ -1,8 +1,21 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# log_base.py - 通用日志父类（所有业务模块继承，实现log_widget核心功能）
+"""
+@作者: laity.wang
+@创建日期: 2026/2/4 11:51
+@文件名: log_base.py
+@项目名称: python-test-popup
+@文件完整绝对路径: D:/LaityTest/python-test-popup/ui\log_base.py
+@文件相对项目路径:   # 可选，不需要可以删掉这行
+@描述: 
+"""
+# -*- coding: utf-8 -*-
+# log_base.py - 通用日志父类（同步UI日志和文件日志）
+import logging
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCursor, QColor
+
 
 class LogBaseWidget(QWidget):
     # 定义日志信号（可选，子类可复用）
@@ -12,7 +25,7 @@ class LogBaseWidget(QWidget):
         super().__init__(parent)
         # 初始化核心日志组件：log_widget（所有子类直接使用）
         self._init_log_widget()
-        # 绑定日志信号
+        # 绑定日志信号（UI日志与文件日志同步）
         self.log_signal.connect(self.print_log)
 
     def _init_log_widget(self):
@@ -71,12 +84,22 @@ class LogBaseWidget(QWidget):
         self.setLayout(log_layout)
 
     def print_log(self, content, level="INFO"):
-        """通用日志打印方法（子类直接调用：self.log_widget.print_log("内容", "级别")）"""
+        """通用日志打印方法（同步到UI和文件日志）"""
+        # 同步到文件日志
+        if level == "INFO":
+            logging.info(content)
+        elif level == "ERROR":
+            logging.error(content)
+        elif level == "WARNING":
+            logging.warning(content)
+        elif level == "SYSTEM":
+            logging.info(f"[SYSTEM] {content}")
+
         # 根据级别设置字体颜色
         color_map = {
-            "INFO": QColor(34, 197, 94),    # 绿色
-            "ERROR": QColor(239, 68, 68),   # 红色
-            "WARNING": QColor(245, 158, 11),# 黄色
+            "INFO": QColor(34, 197, 94),  # 绿色
+            "ERROR": QColor(239, 68, 68),  # 红色
+            "WARNING": QColor(245, 158, 11),  # 黄色
             "SYSTEM": QColor(99, 102, 241)  # 紫色
         }
         color = color_map.get(level, QColor(44, 62, 80))  # 默认黑色
@@ -85,7 +108,7 @@ class LogBaseWidget(QWidget):
         self.log_widget.moveCursor(QTextCursor.MoveOperation.End)
         # 设置字体颜色
         self.log_widget.setTextColor(color)
-        # 插入日志内容（带时间，可选）
+        # 插入日志内容（带时间）
         import time
         log_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         self.log_widget.insertPlainText(f"[{log_time}] [{level}] {content}\n")
@@ -93,6 +116,6 @@ class LogBaseWidget(QWidget):
         self.log_widget.ensureCursorVisible()
 
     def clear_all_log(self):
-        """清空日志方法（绑定到按钮，子类也可直接调用：self.log_widget.clear_all_log()）"""
+        """清空日志方法（绑定到按钮，子类也可直接调用）"""
         self.log_widget.clear()
         self.print_log("日志已清空", "SYSTEM")

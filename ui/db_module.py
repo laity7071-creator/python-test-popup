@@ -1,4 +1,16 @@
-# db_module.py - Python3.10+PyQt6 兼容，数据库模块（支持MySQL/PG/SQLite）
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@作者: laity.wang
+@创建日期: 2026/2/4 11:53
+@文件名: db_module.py
+@项目名称: python-test-popup
+@文件完整绝对路径: D:/LaityTest/python-test-popup/ui\db_module.py
+@文件相对项目路径:   # 可选，不需要可以删掉这行
+@描述: 
+"""
+# db_module.py - Python3.8+PyQt6 兼容，数据库模块（支持MySQL/PG/SQLite）
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit,
     QPushButton, QSizePolicy, QMessageBox, QComboBox, QTextEdit
@@ -6,20 +18,24 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QMutex, QMutexLocker
 from PyQt6.QtGui import QFont
 import time
+
+# 相对导入通用日志类
 from .log_base import LogBaseWidget
 
 # 动态导入数据库驱动（使用前需安装：pip install pymysql psycopg2-binary sqlite3）
 try:
     import pymysql
+
     pymysql.install_as_MySQLdb()
-except ImportError:
-    pass
+except ImportError as e:
+    logging.warning(f"MySQL驱动导入失败：{e}，MySQL功能不可用")
 try:
     import psycopg2
-except ImportError:
-    pass
+except ImportError as e:
+    logging.warning(f"PostgreSQL驱动导入失败：{e}，PostgreSQL功能不可用")
 import sqlite3
 import traceback
+
 
 # ---------------------- 数据库查询子线程 ----------------------
 class DBQueryThread(QThread):
@@ -37,14 +53,18 @@ class DBQueryThread(QThread):
         self.cursor = None
 
     def run(self):
+        logging.info(f"开始执行{self.db_type}SQL：{self.sql[:100]}...")
         try:
-            if not self.conn or self.conn.closed:
+            if not self.conn or (hasattr(self.conn, 'closed') and self.conn.closed):
                 self.output_signal.emit("数据库连接已断开，无法执行查询", "ERROR")
                 self.finish_signal.emit(False)
                 return
 
             self.cursor = self.conn.cursor()
-            self.output_signal.emit(f"开始执行SQL语句：{self.sql[:100]}..." if len(self.sql) > 100 else f"开始执行SQL语句：{self.sql}", level="SYSTEM")
+            self.output_signal.emit(
+                f"开始执行SQL语句：{self.sql[:100]}..." if len(self.sql) > 100 else f"开始执行SQL语句：{self.sql}",
+                level="SYSTEM"
+            )
             start_time = time.time()
 
             # 执行SQL
@@ -59,6 +79,7 @@ class DBQueryThread(QThread):
                 self.output_signal.emit(f"查询结果字段：{', '.join(fields)}", level="INFO")
                 # 输出结果行数
                 self.output_signal.emit(f"查询结果共 {len(results)} 行", level="INFO")
+                logging.info(f"{self.db_type}SQL查询成功，返回{len(results)}行数据")
                 # 输出前50行（避免大数据量卡顿）
                 show_rows = min(50, len(results))
                 for i in range(show_rows):
@@ -67,12 +88,13 @@ class DBQueryThread(QThread):
                         continue
                     if not self._is_running:
                         break
-                    self.output_signal.emit(f"第{i+1}行：{results[i]}", level="INFO")
+                    self.output_signal.emit(f"第{i + 1}行：{results[i]}", level="INFO")
                 if len(results) > 50:
                     self.output_signal.emit(f"结果超过50行，仅显示前50行", level="SYSTEM")
             else:
                 affect_rows = self.cursor.rowcount
                 self.output_signal.emit(f"SQL执行成功，影响行数：{affect_rows}", level="INFO")
+                logging.info(f"{self.db_type}SQL执行成功，影响行数：{affect_rows}")
 
             # 执行耗时
             cost_time = round(time.time() - start_time, 3)
@@ -82,19 +104,21 @@ class DBQueryThread(QThread):
             self.conn.rollback()
             err_info = f"SQL执行异常：{str(e)}\n{traceback.format_exc()[:500]}"
             self.output_signal.emit(err_info, "ERROR")
+            logging.error(f"{self.db_type}SQL执行异常：{err_info}", exc_info=True)
         finally:
             try:
                 if self.cursor:
                     self.cursor.close()
             except:
                 pass
-            self.finish_signal.emit(self._is_running and (not self.conn.closed))
+            self.finish_signal.emit(self._is_running and (not hasattr(self.conn, 'closed') or not self.conn.closed))
 
     def stop(self):
         """停止查询"""
         with QMutexLocker(self._mutex):
             self._is_running = False
         self.output_signal.emit("已强制停止SQL查询", "SYSTEM")
+        logging.warning("已强制停止SQL查询")
 
     def pause(self):
         """暂停输出"""
@@ -110,14 +134,16 @@ class DBQueryThread(QThread):
     def is_paused(self):
         return self._is_paused
 
+
 # ---------------------- 数据库主模块 ----------------------
-class DBModule(QWidget):
+class DBModule(LogBaseWidget):
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent)  # 初始化父类日志组件
         self.db_type = None
         self.conn = None
         self.query_thread = None
         self._init_ui()
+        logging.info("数据库模块初始化完成")
 
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -127,13 +153,9 @@ class DBModule(QWidget):
 
         # 1. 数据库连接配置区
         self._init_db_config_area()
-
         # 2. SQL查询区
         self._init_sql_query_area()
-
-        # 3. 通用日志区
-        self.log_widget = LogBaseWidget(self)
-        self.main_layout.addWidget(self.log_widget, stretch=1)
+        # 3. 通用日志区已由父类LogBaseWidget初始化
 
         # 初始化按钮状态
         self._init_btn_status()
@@ -176,7 +198,6 @@ class DBModule(QWidget):
         self.host_input.setPlaceholderText("MySQL/PG填IP，如127.0.0.1；SQLite填文件路径")
         row2.addWidget(self.host_label)
         row2.addWidget(self.host_input, stretch=2)
-
         self.port_label = QLabel("*端口：", font=QFont("Microsoft YaHei", 12))
         self.port_input = QLineEdit()
         self._set_line_style(self.port_input)
@@ -194,7 +215,6 @@ class DBModule(QWidget):
         self.db_name_input.setPlaceholderText("MySQL/PG填数据库名，SQLite留空")
         row3.addWidget(self.db_name_label)
         row3.addWidget(self.db_name_input, stretch=2)
-
         self.user_label = QLabel("*用户名：", font=QFont("Microsoft YaHei", 12))
         self.user_input = QLineEdit()
         self._set_line_style(self.user_input)
@@ -233,6 +253,7 @@ class DBModule(QWidget):
         self.connect_btn.clicked.connect(self.db_connect)
         self.disconnect_btn.clicked.connect(self.db_disconnect)
         self.default_btn.clicked.connect(self.fill_default_config)
+
         # 初始类型为MySQL
         self._db_type_change("MySQL")
 
@@ -246,7 +267,8 @@ class DBModule(QWidget):
 
         # SQL编辑框（多行）
         self.sql_edit = QTextEdit()
-        self.sql_edit.setPlaceholderText("请输入SQL语句，如：SELECT * FROM table LIMIT 10; 或 INSERT INTO table (id) VALUES (1);")
+        self.sql_edit.setPlaceholderText(
+            "请输入SQL语句，如：SELECT * FROM table LIMIT 10; 或 INSERT INTO table (id) VALUES (1);")
         self.sql_edit.setFont(QFont("Consolas", 12))
         self.sql_edit.setStyleSheet("""
             QTextEdit {
@@ -288,7 +310,7 @@ class DBModule(QWidget):
         self.exec_sql_btn.clicked.connect(self.exec_sql)
         self.stop_sql_btn.clicked.connect(self.stop_sql)
         self.pause_sql_btn.clicked.connect(self.toggle_pause_sql)
-        self.clear_log_btn.clicked.connect(self.log_widget.clear_all_log)
+        self.clear_log_btn.clicked.connect(self.clear_all_log)
 
     # ---------------------- 样式封装 ----------------------
     def _set_group_style(self, group):
@@ -394,6 +416,7 @@ class DBModule(QWidget):
             for w in [self.port_label, self.port_input, self.db_name_label, self.db_name_input,
                       self.user_label, self.user_input, self.pwd_label, self.pwd_input]:
                 w.hide()
+
         self.fill_default_config()
 
     # ---------------------- 核心功能 ----------------------
@@ -426,7 +449,9 @@ class DBModule(QWidget):
             self.db_name_input.setText("")
             self.user_input.setText("")
             self.pwd_input.setText("")
-        self.log_widget.print_log(f"已填充{self.db_type}默认配置", level="SYSTEM")
+
+        self.print_log(f"已填充{self.db_type}默认配置", level="SYSTEM")
+        logging.info(f"已填充{self.db_type}默认配置")
         self.host_input.setFocus()
 
     def db_connect(self):
@@ -457,7 +482,9 @@ class DBModule(QWidget):
                     QMessageBox.warning(self, "配置错误", "SQLite文件路径为必填项！")
                     return
 
-            self.log_widget.print_log(f"正在连接{self.db_type}数据库...", level="SYSTEM")
+            self.print_log(f"正在连接{self.db_type}数据库...", level="SYSTEM")
+            logging.info(f"正在连接{self.db_type}数据库：{host}:{port if self.db_type != 'SQLite' else ''}")
+
             # 连接数据库
             if self.db_type == "MySQL":
                 self.conn = pymysql.connect(
@@ -474,7 +501,8 @@ class DBModule(QWidget):
                 self.conn.row_factory = sqlite3.Row  # 支持按字段名获取
 
             # 连接成功
-            self.log_widget.print_log(f"{self.db_type}数据库连接成功！", level="INFO")
+            self.print_log(f"{self.db_type}数据库连接成功！", level="INFO")
+            logging.info(f"{self.db_type}数据库连接成功")
             self._init_btn_status()
             self.disconnect_btn.setEnabled(True)
             self.exec_sql_btn.setEnabled(True)
@@ -483,19 +511,23 @@ class DBModule(QWidget):
 
         except Exception as e:
             err_info = f"{self.db_type}数据库连接失败：{str(e)}"
-            self.log_widget.print_log(err_info, level="ERROR")
+            self.print_log(err_info, level="ERROR")
+            logging.error(err_info, exc_info=True)
             QMessageBox.critical(self, "连接失败", err_info)
 
     def db_disconnect(self):
         """数据库断开"""
         if self.query_thread and self.query_thread.isRunning():
             self.stop_sql()
-        if self.conn and not self.conn.closed:
+
+        if self.conn and (not hasattr(self.conn, 'closed') or not self.conn.closed):
             try:
                 self.conn.close()
-                self.log_widget.print_log(f"{self.db_type}数据库已安全断开", level="SYSTEM")
-            except:
-                pass
+                self.print_log(f"{self.db_type}数据库已安全断开", level="SYSTEM")
+                logging.info(f"{self.db_type}数据库已安全断开")
+            except Exception as e:
+                logging.error(f"断开{self.db_type}数据库失败：{e}")
+
         self._init_btn_status()
         self.connect_btn.setEnabled(True)
 
@@ -505,7 +537,8 @@ class DBModule(QWidget):
         if not sql:
             QMessageBox.warning(self, "SQL错误", "SQL语句不能为空！")
             return
-        if not self.conn or self.conn.closed:
+
+        if not self.conn or (hasattr(self.conn, 'closed') and self.conn.closed):
             QMessageBox.warning(self, "连接错误", "数据库未连接，请先连接！")
             return
 
@@ -515,7 +548,7 @@ class DBModule(QWidget):
 
         # 启动查询线程
         self.query_thread = DBQueryThread(self.db_type, self.conn, sql)
-        self.query_thread.output_signal.connect(self.log_widget.print_log)
+        self.query_thread.output_signal.connect(self.print_log)
         self.query_thread.finish_signal.connect(self._sql_finish)
         self.query_thread.start()
 
@@ -535,21 +568,25 @@ class DBModule(QWidget):
         """暂停/恢复SQL输出"""
         if not self.query_thread or not self.query_thread.isRunning():
             return
+
         if self.query_thread.is_paused:
             self.query_thread.resume()
             self.pause_sql_btn.setText("⏸️  暂停输出")
-            self.log_widget.print_log("恢复SQL结果输出", level="SYSTEM")
+            self.print_log("恢复SQL结果输出", level="SYSTEM")
         else:
             self.query_thread.pause()
             self.pause_sql_btn.setText("▶️  继续输出")
-            self.log_widget.print_log("暂停SQL结果输出", level="SYSTEM")
+            self.print_log("暂停SQL结果输出", level="SYSTEM")
 
     def _sql_finish(self, is_normal):
         """SQL执行完成回调"""
         if is_normal:
-            self.log_widget.print_log("SQL执行完成，无异常", level="SYSTEM")
+            self.print_log("SQL执行完成，无异常", level="SYSTEM")
+            logging.info("SQL执行完成，无异常")
         else:
-            self.log_widget.print_log("SQL执行被中断/异常", level="WARNING")
+            self.print_log("SQL执行被中断/异常", level="WARNING")
+            logging.warning("SQL执行被中断/异常")
+
         # 恢复按钮状态
         self.exec_sql_btn.setEnabled(True)
         self.stop_sql_btn.setEnabled(False)
@@ -557,9 +594,15 @@ class DBModule(QWidget):
         self.pause_sql_btn.setText("⏸️  暂停输出")
         self.query_thread = None
 
+
 if __name__ == "__main__":
     import sys
     from PyQt6.QtWidgets import QApplication, QMainWindow
+    # 初始化日志
+    from utils.log_utils import init_logger
+
+    init_logger()
+
     app = QApplication(sys.argv)
     win = QMainWindow()
     win.setWindowTitle("数据库模块 - 优化版")

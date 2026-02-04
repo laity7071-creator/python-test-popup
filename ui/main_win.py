@@ -1,6 +1,16 @@
-## 最终主窗口 - `main_win.py`（整合所有模块，一键启动）
-
-# main_win.py - 主窗口（整合SSH/PS1/CMD/DB/API所有模块）- Python3.10+PyQt6 兼容
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@作者: laity.wang
+@创建日期: 2026/2/4 11:51
+@文件名: main_win.py
+@项目名称: python-test-popup
+@文件完整绝对路径: D:/LaityTest/python-test-popup/ui\main_win.py
+@文件相对项目路径:   # 可选，不需要可以删掉这行
+@描述: 
+"""
+# main_win.py - 主窗口（整合所有模块）- Python3.8+PyQt6 兼容
+import logging
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QTabWidget, QApplication
 )
@@ -15,17 +25,19 @@ from .cmd_module import CMDModule
 from .db_module import DBModule
 from .api_module import APIModule
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._init_main_ui()
+        logging.info("主窗口初始化完成")
 
     def _init_main_ui(self):
         """初始化主窗口：标签页整合所有模块"""
         # 窗口基础配置
-        self.setWindowTitle("全能运维工具集 - SSH/PS1/CMD/DB/API（Python3.10+PyQt6）")
+        self.setWindowTitle("全能运维工具集 - SSH/PS1/CMD/DB/API（Python3.8+PyQt6）")
         self.setGeometry(50, 50, 1600, 900)  # 初始大小：宽1600，高900
-        self.setMinimumSize(1200, 800)       # 最小窗口大小，避免挤压
+        self.setMinimumSize(1200, 800)  # 最小窗口大小，避免挤压
 
         # 中心部件 + 主布局
         central_widget = QWidget()
@@ -76,18 +88,3 @@ class MainWindow(QMainWindow):
 
         # 全局字体：统一为微软雅黑，避免乱码
         app.setFont(QFont("Microsoft YaHei", 12))
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    # 全局样式：统一控件风格
-    app.setStyleSheet("QWidget { font-family: Microsoft YaHei; }")
-    # 启动主窗口
-    win = MainWindow()
-    win.show()
-    # 居中显示（可选优化）
-    qr = win.frameGeometry()
-    cp = app.primaryScreen().availableGeometry().center()
-    qr.moveCenter(cp)
-    win.move(qr.topLeft())
-    # 运行程序
-    sys.exit(app.exec())

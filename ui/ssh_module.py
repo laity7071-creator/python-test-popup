@@ -1,5 +1,17 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# ssh_module.py - 完整修正版（解决所有导入/类顺序/继承问题）
+"""
+@作者: laity.wang
+@创建日期: 2026/2/4 11:51
+@文件名: ssh_module.py
+@项目名称: python-test-popup
+@文件完整绝对路径: D:/LaityTest/python-test-popup/ui\ssh_module.py
+@文件相对项目路径:   # 可选，不需要可以删掉这行
+@描述: 
+"""
+# -*- coding: utf-8 -*-
+# ssh_module.py - SSH远程连接模块（优化版）
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit,
     QPushButton, QTextEdit, QMessageBox, QSizePolicy
@@ -9,8 +21,10 @@ from PyQt6.QtGui import QFont
 import paramiko
 from paramiko.ssh_exception import SSHException, NoValidConnectionsError, ChannelException
 import time
-# 相对导入通用日志类（确保ui目录下有__init__.py）
+
+# 相对导入通用日志类
 from .log_base import LogBaseWidget
+
 
 # ---------------------- 1. 先定义子线程类（必须在SSHModule前面） ----------------------
 class SSHCommandThread(QThread):
@@ -40,22 +54,29 @@ class SSHCommandThread(QThread):
                 while self._is_paused and self._is_running:
                     time.sleep(0.1)
                     continue
+
                 if stdout.channel.recv_ready():
                     line = stdout.readline()
                     if line and line.strip():
                         line = line.strip() if isinstance(line, str) else line.strip().decode('utf-8', errors='ignore')
                         self.output_signal.emit(line, "INFO")
+
                 if stderr.channel.recv_stderr_ready():
                     err_line = stderr.readline()
                     if err_line and err_line.strip():
-                        err_line = err_line.strip() if isinstance(err_line, str) else err_line.strip().decode('utf-8', errors='ignore')
+                        err_line = err_line.strip() if isinstance(err_line, str) else err_line.strip().decode('utf-8',
+                                                                                                              errors='ignore')
                         self.output_signal.emit(err_line, "ERROR")
+
                 time.sleep(0.05)
 
             self.output_signal.emit("命令执行结束/已手动停止", "SYSTEM")
 
         except Exception as e:
-            self.output_signal.emit(f"命令执行异常：{str(e)}", "WARNING")
+            err_msg = f"命令执行异常：{str(e)}"
+            self.output_signal.emit(err_msg, "WARNING")
+            logging.error(err_msg, exc_info=True)
+
         finally:
             try:
                 if hasattr(self, 'cmd_channel') and self.cmd_channel:
@@ -74,8 +95,9 @@ class SSHCommandThread(QThread):
             try:
                 self.cmd_channel.close()
                 self.output_signal.emit("已强制关闭远程命令通道", "SYSTEM")
-            except:
-                pass
+                logging.info("已强制关闭远程命令通道")
+            except Exception as e:
+                logging.error(f"关闭命令通道失败：{e}")
 
     def pause(self):
         with QMutexLocker(self._mutex):
@@ -89,6 +111,7 @@ class SSHCommandThread(QThread):
     def is_paused(self):
         return self._is_paused
 
+
 # ---------------------- 2. 再定义主模块类（继承通用日志类） ----------------------
 class SSHModule(LogBaseWidget):
     def __init__(self, parent=None):
@@ -99,6 +122,7 @@ class SSHModule(LogBaseWidget):
         self.history_index = -1
         self.DANGER_COMMANDS = ['rm -rf', 'drop database', 'format', 'mkfs']
         self._init_ui()
+        logging.info("SSH模块初始化完成")
 
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -127,7 +151,6 @@ class SSHModule(LogBaseWidget):
         self._set_line_style(self.host_input)
         self.host_input.setPlaceholderText("请输入远程主机IP，如：192.168.1.100")
         row1.addWidget(self.host_input, stretch=2)
-
         row1.addWidget(QLabel("*端口：", font=QFont("Microsoft YaHei", 12)))
         self.port_input = QLineEdit()
         self._set_line_style(self.port_input)
@@ -142,7 +165,6 @@ class SSHModule(LogBaseWidget):
         self._set_line_style(self.user_input)
         self.user_input.setPlaceholderText("请输入SSH用户名，如：root")
         row2.addWidget(self.user_input, stretch=2)
-
         row2.addWidget(QLabel("*密码：", font=QFont("Microsoft YaHei", 12)))
         self.pwd_input = QLineEdit()
         self._set_line_style(self.pwd_input)
@@ -275,8 +297,7 @@ class SSHModule(LogBaseWidget):
         self.port_input.setText("22")
         self.user_input.setText("root")
         self.pwd_input.setText("")
-        self.log_widget.print_log("已填充默认配置：端口22，用户名root", level="SYSTEM")
-        self.host_input.setFocus()
+        self.print_log("已填充默认配置：端口22，用户名root", "SYSTEM")
 
     def ssh_connect(self):
         try:
@@ -288,6 +309,7 @@ class SSHModule(LogBaseWidget):
             if not all([host, user, pwd]):
                 QMessageBox.warning(self, "配置错误", "IP、用户名、密码为必填项！")
                 return
+
             if not str(port).isdigit() or not 1 <= int(port) <= 65535:
                 QMessageBox.warning(self, "配置错误", "端口必须是1-65535的数字！")
                 return
@@ -295,14 +317,14 @@ class SSHModule(LogBaseWidget):
 
             self.ssh_client = paramiko.SSHClient()
             self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.log_widget.print_log(f"正在连接 {user}@{host}:{port}...", level="SYSTEM")
+            self.print_log(f"正在连接 {user}@{host}:{port}...", "SYSTEM")
 
             self.ssh_client.connect(
                 hostname=host, port=port, username=user, password=pwd,
                 timeout=10, look_for_keys=False, allow_agent=False
             )
 
-            self.log_widget.print_log(f"SSH连接成功：{user}@{host}:{port}", level="INFO")
+            self.print_log(f"SSH连接成功：{user}@{host}:{port}", "INFO")
             self._init_btn_status()
             self.disconnect_btn.setEnabled(True)
             self.exec_btn.setEnabled(True)
@@ -310,21 +332,25 @@ class SSHModule(LogBaseWidget):
             self.cmd_input.setFocus()
 
         except NoValidConnectionsError:
-            self.log_widget.print_log("连接失败：主机不可达/端口未开/SSH服务未启动", level="ERROR")
+            self.print_log("连接失败：主机不可达/端口未开/SSH服务未启动", "ERROR")
         except SSHException as e:
             if "Authentication failed" in str(e):
-                self.log_widget.print_log("连接失败：用户名/密码错误", level="ERROR")
+                self.print_log("连接失败：用户名/密码错误", "ERROR")
             else:
-                self.log_widget.print_log(f"SSH异常：{str(e)}", level="ERROR")
+                self.print_log(f"SSH异常：{str(e)}", "ERROR")
         except Exception as e:
-            self.log_widget.print_log(f"连接失败：{str(e)}", level="ERROR")
+            self.print_log(f"连接失败：{str(e)}", "ERROR")
+            logging.error(f"SSH连接失败：{e}", exc_info=True)
 
     def ssh_disconnect(self):
         if self.cmd_thread and self.cmd_thread.isRunning():
             self.stop_ssh_cmd()
+
         if self.ssh_client and self.ssh_client.get_transport().is_active():
             self.ssh_client.close()
-            self.log_widget.print_log("SSH已安全断开", level="SYSTEM")
+            self.print_log("SSH已安全断开", "SYSTEM")
+            logging.info("SSH已安全断开")
+
         self._init_btn_status()
         self.connect_btn.setEnabled(True)
 
@@ -344,26 +370,30 @@ class SSHModule(LogBaseWidget):
         is_danger, danger_cmd = self._check_danger_cmd(cmd)
         if is_danger:
             QMessageBox.warning(self, "高危命令拦截", f"禁止执行高危命令「{danger_cmd}」，避免数据丢失！")
+            logging.warning(f"用户尝试执行高危命令：{cmd}")
             return
 
+        # 记录命令历史
         if cmd not in self.cmd_history:
             self.cmd_history.append(cmd)
             if len(self.cmd_history) > 50:
                 self.cmd_history.pop(0)
         self.history_index = -1
 
+        # 停止已有命令
         if self.cmd_thread and self.cmd_thread.isRunning():
             self.stop_ssh_cmd()
 
+        # 启动命令线程
         self.cmd_thread = SSHCommandThread(self.ssh_client, cmd)
-        self.cmd_thread.output_signal.connect(self.log_widget.print_log)
+        self.cmd_thread.output_signal.connect(self.print_log)
         self.cmd_thread.finish_signal.connect(self._cmd_finish)
         self.cmd_thread.start()
 
         self.exec_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.pause_btn.setEnabled(True)
-        self.log_widget.print_log(f"开始执行命令：{cmd}", level="SYSTEM")
+        self.print_log(f"开始执行命令：{cmd}", "SYSTEM")
 
     def stop_ssh_cmd(self):
         if self.cmd_thread and self.cmd_thread.isRunning():
@@ -374,20 +404,22 @@ class SSHModule(LogBaseWidget):
     def toggle_pause_cmd(self):
         if not self.cmd_thread or not self.cmd_thread.isRunning():
             return
+
         if self.cmd_thread.is_paused:
             self.cmd_thread.resume()
             self.pause_btn.setText("⏸️  暂停输出")
-            self.log_widget.print_log("恢复日志输出", level="SYSTEM")
+            self.print_log("恢复日志输出", "SYSTEM")
         else:
             self.cmd_thread.pause()
             self.pause_btn.setText("▶️  继续输出")
-            self.log_widget.print_log("暂停日志输出", level="SYSTEM")
+            self.print_log("暂停日志输出", "SYSTEM")
 
     def _cmd_finish(self, is_normal):
         if is_normal:
-            self.log_widget.print_log("命令执行完成，无异常", level="SYSTEM")
+            self.print_log("命令执行完成，无异常", "SYSTEM")
         else:
-            self.log_widget.print_log("命令执行被中断（停止/断连）", level="SYSTEM")
+            self.print_log("命令执行被中断（停止/断连）", "SYSTEM")
+
         self.exec_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.pause_btn.setEnabled(False)
@@ -412,14 +444,3 @@ class SSHModule(LogBaseWidget):
                         self.cmd_input.setCursorPosition(len(self.cmd_input.text()))
                 return True
         return super().eventFilter(obj, event)
-
-if __name__ == "__main__":
-    import sys
-    from PyQt6.QtWidgets import QApplication, QMainWindow
-    app = QApplication(sys.argv)
-    win = QMainWindow()
-    win.setWindowTitle("SSH模块 - 最终稳定版")
-    win.setGeometry(100, 100, 1600, 900)
-    win.setCentralWidget(SSHModule())
-    win.show()
-    sys.exit(app.exec())

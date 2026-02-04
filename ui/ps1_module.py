@@ -1,4 +1,16 @@
-# ps1_module.py - Python3.10+PyQt6 兼容，PS1模块（本地执行PowerShell）
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@作者: laity.wang
+@创建日期: 2026/2/4 11:52
+@文件名: ps1_module.py
+@项目名称: python-test-popup
+@文件完整绝对路径: D:/LaityTest/python-test-popup/ui\ps1_module.py
+@文件相对项目路径:   # 可选，不需要可以删掉这行
+@描述: 
+"""
+# ps1_module.py - Python3.8+PyQt6 兼容，PowerShell模块
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit,
     QPushButton, QSizePolicy, QMessageBox
@@ -8,30 +20,26 @@ from PyQt6.QtGui import QFont
 import subprocess
 import sys
 import time
-# 先确保顶部有这个相对导入（没有就加上）
+
+# 相对导入通用日志类
 from .log_base import LogBaseWidget
 
-# 1. 类定义：把继承QWidget改成继承LogBaseWidget
-class PS1Module(LogBaseWidget):  # 原代码是class PS1Module(QWidget):
-    log_signal = pyqtSignal(str, str)
-    exec_finish_signal = pyqtSignal()
 
-    # 2. __init__方法：第一行调用父类构造函数
-    def __init__(self, parent=None):
-        super().__init__(parent)  # 必须加这行！初始化log_widget
-        self.ps1_thread = None
-        self.is_executing = False
-        self._init_ui()  # 原有代码保留
+# ---------------------- PowerShell命令执行子线程 ----------------------
+class PS1CommandThread(QThread):
+    output_signal = pyqtSignal(str, str)
+    finish_signal = pyqtSignal(bool)
+    _mutex = QMutex()
 
-    def clear_all_log(self):
-        """新增清空日志方法，解决属性缺失报错"""
-        self.log_widget.clear()  # 清空日志显示框
-        # 打印日志（和父类逻辑一致，可选）
-        import time
-        log_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        self.log_widget.insertPlainText(f"[{log_time}] [SYSTEM] 日志已清空\n")
+    def __init__(self, command):
+        super().__init__()
+        self.command = command
+        self._is_running = True
+        self._is_paused = False
+        self.process = None
 
     def run(self):
+        logging.info(f"开始执行PowerShell命令：{self.command}")
         try:
             # Windows PowerShell执行命令，处理编码（避免中文乱码）
             startupinfo = subprocess.STARTUPINFO()
@@ -52,26 +60,35 @@ class PS1Module(LogBaseWidget):  # 原代码是class PS1Module(QWidget):
                 while self._is_paused and self._is_running:
                     time.sleep(0.1)
                     continue
+
                 # 读取标准输出
                 if self.process.stdout.readable():
                     line = self.process.stdout.readline()
                     if line and line.strip():
                         self.output_signal.emit(line.strip(), "INFO")
+
                 # 读取标准错误
                 if self.process.stderr.readable():
                     err_line = self.process.stderr.readline()
                     if err_line and err_line.strip():
                         self.output_signal.emit(err_line.strip(), "ERROR")
+
                 time.sleep(0.05)
 
             # 检查退出码
-            if self.process.poll() == 0 and self._is_running:
-                self.output_signal.emit("命令执行完成，退出码：0", "SYSTEM")
+            exit_code = self.process.poll() if self.process else -1
+            if exit_code == 0 and self._is_running:
+                self.output_signal.emit(f"命令执行完成，退出码：{exit_code}", "SYSTEM")
+                logging.info(f"PowerShell命令执行完成，退出码：{exit_code}")
             else:
-                self.output_signal.emit(f"命令执行结束/异常，退出码：{self.process.poll()}", "WARNING")
+                self.output_signal.emit(f"命令执行结束/异常，退出码：{exit_code}", "WARNING")
+                logging.warning(f"PowerShell命令执行异常，退出码：{exit_code}")
 
         except Exception as e:
-            self.output_signal.emit(f"命令执行异常：{str(e)}", "ERROR")
+            err_msg = f"命令执行异常：{str(e)}"
+            self.output_signal.emit(err_msg, "ERROR")
+            logging.error(f"PowerShell命令执行异常：{err_msg}", exc_info=True)
+
         finally:
             self.finish_signal.emit(self._is_running and (self.process.poll() == 0 if self.process else False))
 
@@ -84,8 +101,10 @@ class PS1Module(LogBaseWidget):  # 原代码是class PS1Module(QWidget):
                 self.process.terminate()
                 self.process.wait(1)
                 self.output_signal.emit("已强制终止PowerShell进程", "SYSTEM")
-            except:
+                logging.info("已强制终止PowerShell进程")
+            except Exception as e:
                 self.process.kill()
+                logging.error(f"终止PowerShell进程失败：{e}")
 
     def pause(self):
         """暂停输出"""
@@ -101,14 +120,16 @@ class PS1Module(LogBaseWidget):  # 原代码是class PS1Module(QWidget):
     def is_paused(self):
         return self._is_paused
 
+
 # ---------------------- PS1主模块 ----------------------
-class PS1Module(QWidget):
+class PS1Module(LogBaseWidget):
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent)  # 初始化父类日志组件
         self.cmd_thread = None
         self.cmd_history = []
         self.history_index = -1
         self._init_ui()
+        logging.info("PowerShell模块初始化完成")
 
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -118,10 +139,7 @@ class PS1Module(QWidget):
 
         # 1. PS1命令执行区
         self._init_ps1_cmd_area()
-
-        # 2. 通用日志区
-        self.log_widget = LogBaseWidget(self)
-        self.main_layout.addWidget(self.log_widget, stretch=1)
+        # 2. 通用日志区已由父类LogBaseWidget初始化
 
         # 初始化按钮状态
         self._init_btn_status()
@@ -172,7 +190,7 @@ class PS1Module(QWidget):
         self.cmd_input.returnPressed.connect(self.exec_ps1_cmd)
         self.cmd_input.installEventFilter(self)
 
-    # ---------------------- 样式封装（和SSH一致） ----------------------
+    # ---------------------- 样式封装 ----------------------
     def _set_group_style(self, group):
         group.setStyleSheet("""
             QGroupBox {
@@ -249,7 +267,7 @@ class PS1Module(QWidget):
 
         # 启动线程
         self.cmd_thread = PS1CommandThread(cmd)
-        self.cmd_thread.output_signal.connect(self.log_widget.print_log)
+        self.cmd_thread.output_signal.connect(self.print_log)
         self.cmd_thread.finish_signal.connect(self._cmd_finish)
         self.cmd_thread.start()
 
@@ -257,67 +275,76 @@ class PS1Module(QWidget):
         self.exec_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.pause_btn.setEnabled(True)
-        self.log_widget.print_log(f"开始执行PowerShell命令：{cmd}", level="SYSTEM")
+        self.print_log(f"开始执行PowerShell命令：{cmd}", level="SYSTEM")
 
-    def stop_ps1_cmd(self):
-        """停止命令"""
-        if self.cmd_thread and self.cmd_thread.isRunning():
-            self.cmd_thread.stop()
-            self.cmd_thread.wait(1000)
-            self._cmd_finish(False)
+        def stop_ps1_cmd(self):
+            """停止命令"""
+            if self.cmd_thread and self.cmd_thread.isRunning():
+                self.cmd_thread.stop()
+                self.cmd_thread.wait(1000)
+                self._cmd_finish(False)
 
-    def toggle_pause_cmd(self):
-        """暂停/恢复"""
-        if not self.cmd_thread or not self.cmd_thread.isRunning():
-            return
-        if self.cmd_thread.is_paused:
-            self.cmd_thread.resume()
+        def toggle_pause_cmd(self):
+            """暂停/恢复"""
+            if not self.cmd_thread or not self.cmd_thread.isRunning():
+                self.print_log("⚠️  无正在执行的请求，无法暂停", level="WARNING")
+                return
+
+            if self.cmd_thread.is_paused:
+                self.cmd_thread.resume()
+                self.pause_btn.setText("⏸️  暂停输出")
+                self.print_log("🟢 已恢复响应结果输出", level="SYSTEM")
+            else:
+                self.cmd_thread.pause()
+                self.pause_btn.setText("▶️  继续输出")
+                self.print_log("🟡 已暂停响应结果输出", level="SYSTEM")
+
+        def _cmd_finish(self, is_normal):
+            """命令完成"""
+            if is_normal:
+                self.print_log("PowerShell命令执行完成，无异常", level="SYSTEM")
+                logging.info("PowerShell命令执行完成")
+            else:
+                self.print_log("PowerShell命令执行被中断/异常", level="WARNING")
+                logging.warning("PowerShell命令执行被中断/异常")
+
+            self.exec_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self.pause_btn.setEnabled(False)
             self.pause_btn.setText("⏸️  暂停输出")
-            self.log_widget.print_log("恢复日志输出", level="SYSTEM")
-        else:
-            self.cmd_thread.pause()
-            self.pause_btn.setText("▶️  继续输出")
-            self.log_widget.print_log("暂停日志输出", level="SYSTEM")
+            self.cmd_thread = None
 
-    def _cmd_finish(self, is_normal):
-        """命令完成"""
-        if is_normal:
-            self.log_widget.print_log("PowerShell命令执行完成，无异常", level="SYSTEM")
-        else:
-            self.log_widget.print_log("PowerShell命令执行被中断/异常", level="WARNING")
-        self.exec_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.pause_btn.setEnabled(False)
-        self.pause_btn.setText("⏸️  暂停输出")
-        self.cmd_thread = None
-
-    def eventFilter(self, obj, event):
-        """上下键历史"""
-        if obj == self.cmd_input and event.type() == event.Type.KeyPress:
-            if event.key() == Qt.Key.Key_Up:
-                if self.cmd_history and self.history_index < len(self.cmd_history) - 1:
-                    self.history_index += 1
-                    self.cmd_input.setText(self.cmd_history[-(self.history_index + 1)])
-                    self.cmd_input.setCursorPosition(len(self.cmd_input.text()))
-                return True
-            elif event.key() == Qt.Key.Key_Down:
-                if self.cmd_history and self.history_index >= 0:
-                    self.history_index -= 1
-                    if self.history_index < 0:
-                        self.cmd_input.clear()
-                    else:
+        def eventFilter(self, obj, event):
+            """上下键历史"""
+            if obj == self.cmd_input and event.type() == event.Type.KeyPress:
+                if event.key() == Qt.Key.Key_Up:
+                    if self.cmd_history and self.history_index < len(self.cmd_history) - 1:
+                        self.history_index += 1
                         self.cmd_input.setText(self.cmd_history[-(self.history_index + 1)])
                         self.cmd_input.setCursorPosition(len(self.cmd_input.text()))
-                return True
-        return super().eventFilter(obj, event)
+                    return True
+                elif event.key() == Qt.Key.Key_Down:
+                    if self.cmd_history and self.history_index >= 0:
+                        self.history_index -= 1
+                        if self.history_index < 0:
+                            self.cmd_input.clear()
+                        else:
+                            self.cmd_input.setText(self.cmd_history[-(self.history_index + 1)])
+                            self.cmd_input.setCursorPosition(len(self.cmd_input.text()))
+                    return True
+            return super().eventFilter(obj, event)
 
-if __name__ == "__main__":
-    import sys
-    from PyQt6.QtWidgets import QApplication, QMainWindow
-    app = QApplication(sys.argv)
-    win = QMainWindow()
-    win.setWindowTitle("PowerShell模块 - 优化版")
-    win.setGeometry(100, 100, 1600, 900)
-    win.setCentralWidget(PS1Module())
-    win.show()
-    sys.exit(app.exec())
+        if __name__ == "__main__":
+            import sys
+            from PyQt6.QtWidgets import QApplication, QMainWindow
+            # 初始化日志
+            from utils.log_utils import init_logger
+            init_logger()
+
+            app = QApplication(sys.argv)
+            win = QMainWindow()
+            win.setWindowTitle("PowerShell模块 - 优化版")
+            win.setGeometry(100, 100, 1600, 900)
+            win.setCentralWidget(PS1Module())
+            win.show()
+            sys.exit(app.exec())

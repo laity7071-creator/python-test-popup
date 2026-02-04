@@ -1,4 +1,16 @@
-# cmd_module.py - Python3.10+PyQt6 兼容，CMD模块（本地执行CMD命令）
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@作者: laity.wang
+@创建日期: 2026/2/4 11:52
+@文件名: cmd_module.py
+@项目名称: python-test-popup
+@文件完整绝对路径: D:/LaityTest/python-test-popup/ui\cmd_module.py
+@文件相对项目路径:   # 可选，不需要可以删掉这行
+@描述: 
+"""
+# cmd_module.py - Python3.8+PyQt6 兼容，CMD模块（本地执行CMD命令）
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit,
     QPushButton, QSizePolicy, QMessageBox
@@ -8,7 +20,10 @@ from PyQt6.QtGui import QFont
 import subprocess
 import sys
 import time
+
+# 相对导入通用日志类
 from .log_base import LogBaseWidget
+
 
 # ---------------------- CMD命令执行子线程 ----------------------
 class CMDCommandThread(QThread):
@@ -24,6 +39,7 @@ class CMDCommandThread(QThread):
         self.process = None
 
     def run(self):
+        logging.info(f"开始执行CMD命令：{self.command}")
         try:
             # Windows CMD执行，处理GBK编码（避免中文乱码）
             startupinfo = subprocess.STARTUPINFO()
@@ -44,26 +60,35 @@ class CMDCommandThread(QThread):
                 while self._is_paused and self._is_running:
                     time.sleep(0.1)
                     continue
+
                 # 读取标准输出
                 if self.process.stdout.readable():
                     line = self.process.stdout.readline()
                     if line and line.strip():
                         self.output_signal.emit(line.strip(), "INFO")
+
                 # 读取标准错误
                 if self.process.stderr.readable():
                     err_line = self.process.stderr.readline()
                     if err_line and err_line.strip():
                         self.output_signal.emit(err_line.strip(), "ERROR")
+
                 time.sleep(0.05)
 
             # 检查退出码
-            if self.process.poll() == 0 and self._is_running:
-                self.output_signal.emit("命令执行完成，退出码：0", "SYSTEM")
+            exit_code = self.process.poll() if self.process else -1
+            if exit_code == 0 and self._is_running:
+                self.output_signal.emit(f"命令执行完成，退出码：{exit_code}", "SYSTEM")
+                logging.info(f"CMD命令执行完成，退出码：{exit_code}")
             else:
-                self.output_signal.emit(f"命令执行结束/异常，退出码：{self.process.poll()}", "WARNING")
+                self.output_signal.emit(f"命令执行结束/异常，退出码：{exit_code}", "WARNING")
+                logging.warning(f"CMD命令执行异常，退出码：{exit_code}")
 
         except Exception as e:
-            self.output_signal.emit(f"命令执行异常：{str(e)}", "ERROR")
+            err_msg = f"命令执行异常：{str(e)}"
+            self.output_signal.emit(err_msg, "ERROR")
+            logging.error(f"CMD命令执行异常：{err_msg}", exc_info=True)
+
         finally:
             self.finish_signal.emit(self._is_running and (self.process.poll() == 0 if self.process else False))
 
@@ -76,8 +101,10 @@ class CMDCommandThread(QThread):
                 self.process.terminate()
                 self.process.wait(1)
                 self.output_signal.emit("已强制终止CMD进程", "SYSTEM")
-            except:
+                logging.info("已强制终止CMD进程")
+            except Exception as e:
                 self.process.kill()
+                logging.error(f"终止CMD进程失败：{e}")
 
     def pause(self):
         """暂停输出"""
@@ -93,14 +120,16 @@ class CMDCommandThread(QThread):
     def is_paused(self):
         return self._is_paused
 
+
 # ---------------------- CMD主模块 ----------------------
-class CMDModule(QWidget):
+class CMDModule(LogBaseWidget):
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent)  # 初始化父类日志组件
         self.cmd_thread = None
         self.cmd_history = []
         self.history_index = -1
         self._init_ui()
+        logging.info("CMD模块初始化完成")
 
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -110,10 +139,7 @@ class CMDModule(QWidget):
 
         # 1. CMD命令执行区
         self._init_cmd_area()
-
-        # 2. 通用日志区
-        self.log_widget = LogBaseWidget(self)
-        self.main_layout.addWidget(self.log_widget, stretch=1)
+        # 2. 通用日志区已由父类LogBaseWidget初始化
 
         # 初始化按钮状态
         self._init_btn_status()
@@ -160,7 +186,7 @@ class CMDModule(QWidget):
         self.exec_btn.clicked.connect(self.exec_cmd)
         self.stop_btn.clicked.connect(self.stop_cmd)
         self.pause_btn.clicked.connect(self.toggle_pause_cmd)
-        self.clear_log_btn.clicked.connect(self.log_widget.clear_all_log)
+        self.clear_log_btn.clicked.connect(self.clear_all_log)
         self.cmd_input.returnPressed.connect(self.exec_cmd)
         self.cmd_input.installEventFilter(self)
 
@@ -241,7 +267,7 @@ class CMDModule(QWidget):
 
         # 启动线程
         self.cmd_thread = CMDCommandThread(cmd)
-        self.cmd_thread.output_signal.connect(self.log_widget.print_log)
+        self.cmd_thread.output_signal.connect(self.print_log)
         self.cmd_thread.finish_signal.connect(self._cmd_finish)
         self.cmd_thread.start()
 
@@ -249,7 +275,7 @@ class CMDModule(QWidget):
         self.exec_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.pause_btn.setEnabled(True)
-        self.log_widget.print_log(f"开始执行CMD命令：{cmd}", level="SYSTEM")
+        self.print_log(f"开始执行CMD命令：{cmd}", level="SYSTEM")
 
     def stop_cmd(self):
         """停止命令"""
@@ -261,22 +287,27 @@ class CMDModule(QWidget):
     def toggle_pause_cmd(self):
         """暂停/恢复"""
         if not self.cmd_thread or not self.cmd_thread.isRunning():
+            self.print_log("⚠️  无正在执行的请求，无法暂停", level="WARNING")
             return
+
         if self.cmd_thread.is_paused:
             self.cmd_thread.resume()
             self.pause_btn.setText("⏸️  暂停输出")
-            self.log_widget.print_log("恢复日志输出", level="SYSTEM")
+            self.print_log("🟢 已恢复响应结果输出", level="SYSTEM")
         else:
             self.cmd_thread.pause()
             self.pause_btn.setText("▶️  继续输出")
-            self.log_widget.print_log("暂停日志输出", level="SYSTEM")
+            self.print_log("🟡 已暂停响应结果输出", level="SYSTEM")
 
     def _cmd_finish(self, is_normal):
         """命令完成"""
         if is_normal:
-            self.log_widget.print_log("CMD命令执行完成，无异常", level="SYSTEM")
+            self.print_log("CMD命令执行完成，无异常", level="SYSTEM")
+            logging.info("CMD命令执行完成")
         else:
-            self.log_widget.print_log("CMD命令执行被中断/异常", level="WARNING")
+            self.print_log("CMD命令执行被中断/异常", level="WARNING")
+            logging.warning("CMD命令执行被中断/异常")
+
         self.exec_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.pause_btn.setEnabled(False)
@@ -303,9 +334,15 @@ class CMDModule(QWidget):
                 return True
         return super().eventFilter(obj, event)
 
+
 if __name__ == "__main__":
     import sys
     from PyQt6.QtWidgets import QApplication, QMainWindow
+    # 初始化日志
+    from utils.log_utils import init_logger
+
+    init_logger()
+
     app = QApplication(sys.argv)
     win = QMainWindow()
     win.setWindowTitle("CMD模块 - 优化版")
